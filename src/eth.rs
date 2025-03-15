@@ -1,6 +1,6 @@
 use crate::layer3::{ArpPacket, Ipv4Packet, Layer3Packet};
 use anyhow::{Result, bail};
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub mod ethtype {
     pub const IPV4: u16 = 0x0800;
@@ -39,6 +39,10 @@ impl Mac6 {
         self.inner
     }
 
+    pub const fn as_bytes(&self) -> &[u8] {
+        &self.inner
+    }
+
     pub async fn from_reader(mut reader: impl AsyncRead + Unpin) -> std::io::Result<Self> {
         let mut buf = [0; 6];
         reader.read_exact(&mut buf).await?;
@@ -46,7 +50,7 @@ impl Mac6 {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct EthFrame {
     /// Destination MAC
     dst: Mac6,
@@ -75,12 +79,14 @@ impl EthFrame {
                 reader.read_exact(&mut payload).await?;
                 Layer3Packet::Unknown(payload)
             }
-            ethtype::IPV4 => Layer3Packet::Ipv4(Ipv4Packet::from_reader(reader).await?),
-            ethtype::ARP => Layer3Packet::Arp(ArpPacket::from_reader(reader).await?),
+            ethtype::IPV4 => Layer3Packet::Ipv4(Ipv4Packet::from_reader(&mut reader).await?),
+            ethtype::ARP => Layer3Packet::Arp(ArpPacket::from_reader(&mut reader).await?),
             _ => {
                 bail!("Unknown eth type: 0x{ethtype:04x}");
             }
         };
+
+        //let _crc = reader.read_u32().await?;
 
         Ok(Self {
             dst: Mac6::from(dst),
@@ -89,11 +95,27 @@ impl EthFrame {
             payload,
         })
     }
+
+    pub async fn onto_writer(&mut self, mut writer: impl AsyncWrite + Unpin) -> Result<()> {
+        let mut vec = Vec::new();
+        vec.write_all(self.dst.as_bytes()).await?;
+        vec.write_all(self.src.as_bytes()).await?;
+        vec.write_u16(self.ethtype).await?;
+        self.payload.onto_writer(&mut vec).await?;
+
+        let hasher = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+        let crc = hasher.checksum(&vec);
+        vec.write_u32(crc).await?;
+
+        writer.write_all(&vec).await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Result;
 
     #[tokio::test]
     async fn parse_basic_frame() {
@@ -116,6 +138,25 @@ mod tests {
         };
         assert_eq!(packet.source.to_string(), "192.168.0.5");
         assert_eq!(packet.destination.to_string(), "224.0.0.251");
+    }
+
+    #[tokio::test]
+    async fn write_frame() -> Result<()> {
+        let mut frame = EthFrame {
+            src: Mac6::from([1, 2, 3, 4, 5, 6]),
+            dst: Mac6::from([7, 8, 9, 10, 11, 12]),
+            ethtype: 4,
+            payload: Layer3Packet::Unknown(vec![3, 1, 4, 1]),
+        };
+
+        let mut vec = Vec::new();
+        frame.onto_writer(&mut vec).await?;
+
+        println!("{vec:2x?}");
+
+        assert_eq!(EthFrame::from_reader(vec.as_slice()).await?, frame);
+
+        Ok(())
     }
 
     #[test]

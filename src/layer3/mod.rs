@@ -5,7 +5,7 @@ pub use arp::ArpPacket;
 pub use ipv4::Ipv4Packet;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Layer3Packet {
     Ipv4(Ipv4Packet),
     Arp(ArpPacket),

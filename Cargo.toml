@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.97"
+crc = "3.2.1"
 internet-checksum = "0.2.1"
 tokio = { version = "1.44.0", features = ["full"] }
 tun = { version = "0.7.13", features = ["async"] }
