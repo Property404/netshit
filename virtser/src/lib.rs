@@ -3,8 +3,10 @@ use nix::{
     errno::Errno,
     pty::{OpenptyResult, openpty},
     sys::termios::{self, BaudRate, ControlFlags, LocalFlags, SetArg},
+    unistd::ttyname,
 };
 use std::{
+    ffi::CStr,
     fs::File,
     io::{Read, Write},
     os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
@@ -53,7 +55,7 @@ impl VirtSerBuilder {
         set_nonblocking(master.as_raw_fd())?;
 
         let master_file = unsafe { File::from_raw_fd(master.into_raw_fd()) };
-        let slave_path = get_file_path(slave.as_raw_fd())?;
+        let slave_path = ttyname(&slave)?;
         let slave_file = unsafe { File::from_raw_fd(slave.into_raw_fd()) };
 
         set_echo(&slave_file, self.echo)?;
@@ -130,18 +132,6 @@ fn set_nonblocking(fd: RawFd) -> Result {
     let new_flags = OFlag::from_bits_truncate(flags) | OFlag::O_NONBLOCK;
     fcntl(fd, F_SETFL(new_flags))?;
     Ok(())
-}
-
-fn get_file_path(fd: RawFd) -> Result<PathBuf> {
-    use libc::ttyname;
-    use std::ffi::CStr;
-    let ret = unsafe { ttyname(fd) };
-    if ret.is_null() {
-        Err(Error::Generic("Couldn't get ttyname".into()))
-    } else {
-        let path = unsafe { CStr::from_ptr(ret) }.to_string_lossy();
-        Ok(PathBuf::from(path.as_ref()))
-    }
 }
 
 fn set_baud_rate(file: &File, baud: BaudRate) -> Result {

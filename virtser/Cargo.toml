@@ -5,11 +5,5 @@ description = "Virtual Serial"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.97"
-clap = { version = "4.5.32", features = ["derive"] }
-libc = "0.2.171"
 nix = { version = "0.29.0", features = ["fs", "term"] }
-pty-process = { version = "0.5.1", features = ["async"] }
 thiserror = "2.0.12"
-tokio = { version = "1.44.1", features = ["full"] }
-virtual-serialport = "0.1.3"
