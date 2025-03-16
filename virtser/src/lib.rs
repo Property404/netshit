@@ -25,14 +25,14 @@ impl VirtSer {
         let OpenptyResult { master, slave } = openpty(None, None)?;
         set_nonblocking(master.as_raw_fd())?;
 
-        let slave_name = get_slave_name(slave.as_raw_fd());
+        let slave_name = get_file_name(slave.as_raw_fd());
         let slave_file = unsafe { File::from_raw_fd(slave.into_raw_fd()) };
         println!("{slave_name}: ");
 
         set_echo(&slave_file, false)?;
         set_baud_rate(&slave_file, BaudRate::B115200)?;
 
-        let master_name = get_slave_name(master.as_raw_fd());
+        let master_name = get_file_name(master.as_raw_fd());
         let mut master_file = unsafe { File::from_raw_fd(master.into_raw_fd()) };
         println!("{master_name}: ");
 
@@ -90,7 +90,7 @@ fn set_nonblocking(fd: RawFd) -> Result {
     Ok(())
 }
 
-fn get_slave_name(fd: RawFd) -> String {
+fn get_file_name(fd: RawFd) -> String {
     use libc::ttyname;
     use std::ffi::CStr;
     let ret = unsafe { ttyname(fd) };
