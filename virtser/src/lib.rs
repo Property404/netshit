@@ -1,18 +1,13 @@
-#![allow(unused_mut, unused_imports, dead_code)]
 use nix::{
-    errno::Errno,
     pty::{OpenptyResult, openpty},
-    sys::termios::{self, BaudRate, ControlFlags, LocalFlags, SetArg},
+    sys::termios::{self, BaudRate, InputFlags, LocalFlags, SetArg},
     unistd::ttyname,
 };
 use std::{
-    ffi::CStr,
     fs::File,
     io::{Read, Write},
-    os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
+    os::fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd},
     path::{Path, PathBuf},
-    pin::{Pin, pin},
-    str::FromStr,
     time::Duration,
 };
 mod error;
@@ -43,7 +38,7 @@ impl VirtSerBuilder {
 
     /// If true, set echo on. If false, set echo off
     #[must_use]
-    const fn set_echo(mut self, echo: bool) -> Self {
+    pub const fn set_echo(mut self, echo: bool) -> Self {
         self.echo = echo;
         self
     }
@@ -58,12 +53,13 @@ impl VirtSerBuilder {
         let slave_path = ttyname(&slave)?;
         let slave_file = unsafe { File::from_raw_fd(slave.into_raw_fd()) };
 
+        set_flags(&slave_file)?;
         set_echo(&slave_file, self.echo)?;
         set_baud_rate(&slave_file, self.baud_rate)?;
 
         Ok(VirtSer {
             master_file,
-            slave_file,
+            _slave_file: slave_file,
             slave_path,
         })
     }
@@ -79,7 +75,7 @@ impl Default for VirtSerBuilder {
 #[derive(Debug)]
 pub struct VirtSer {
     master_file: File,
-    slave_file: File,
+    _slave_file: File,
     slave_path: PathBuf,
 }
 
@@ -149,4 +145,39 @@ fn set_echo(file: &File, echo: bool) -> Result {
     }
     termios::tcsetattr(file, SetArg::TCSANOW, &termios)?;
     Ok(())
+}
+
+fn set_flags(file: &File) -> Result {
+    let mut termios = termios::tcgetattr(file)?;
+
+    // Don't convert carriage to newline
+    termios.input_flags.remove(InputFlags::ICRNL);
+
+    termios::tcsetattr(file, SetArg::TCSANOW, &termios)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blocking_write() {
+        let mut ser = VirtSerBuilder::new().build().unwrap();
+        let mut slave = File::open(ser.path()).unwrap();
+
+        let tvs = ["Hello, world!\n", "Howdy\ndo!\n", "Wow\rza!\n"];
+
+        for tv in tvs {
+            // Write to master
+            ser.write_all(tv.as_bytes()).unwrap();
+
+            // Read from slave
+            let mut buf = vec![0; tv.len()];
+            slave.read_exact(&mut buf).unwrap();
+
+            println!("Testing: {tv}");
+            assert_eq!(buf, tv.as_bytes());
+        }
+    }
 }
