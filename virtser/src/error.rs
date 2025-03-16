@@ -4,6 +4,8 @@ pub type Result<T = ()> = std::result::Result<T, Error>;
 /// Error type for this crate
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("{0}")]
+    Generic(String),
     #[error(transparent)]
     Nix(nix::errno::Errno),
 }

@@ -2,12 +2,12 @@ use std::io::{Read, Write};
 
 use anyhow::Result;
 use utf8_parser::Utf8Parser;
-use virtser::VirtSer;
+use virtser::VirtSerBuilder;
 
 fn main() -> Result<()> {
     let mut parser = Utf8Parser::new();
     println!("Opening serial device");
-    let mut ser = VirtSer::new()?;
+    let mut ser = VirtSerBuilder::new().build()?;
     println!("Looping");
     ser.write_all(b"Hello darling\n")?;
     ser.write_all(b"Hello lovelies\n")?;
