@@ -111,10 +111,10 @@ fn set_baud_rate(file: &File, baud: BaudRate) -> Result {
 }
 
 fn set_echo(file: &File, echo: bool) -> Result {
-    let mut termios = termios::tcgetattr(&file)?;
+    let mut termios = termios::tcgetattr(file)?;
     if !echo {
         termios.local_flags.remove(LocalFlags::ECHO);
     }
-    termios::tcsetattr(&file, SetArg::TCSANOW, &termios)?;
+    termios::tcsetattr(file, SetArg::TCSANOW, &termios)?;
     Ok(())
 }
