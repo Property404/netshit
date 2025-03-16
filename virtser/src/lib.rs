@@ -1,6 +1,6 @@
 use nix::{
     pty::{OpenptyResult, openpty},
-    sys::termios::{self, BaudRate, InputFlags, LocalFlags, SetArg},
+    sys::termios::{self, BaudRate, LocalFlags, SetArg, cfmakeraw},
     unistd::ttyname,
 };
 use std::{
@@ -17,6 +17,7 @@ pub use error::{Error, Result};
 pub struct VirtSerBuilder {
     baud_rate: BaudRate,
     echo: bool,
+    raw: bool,
 }
 
 impl VirtSerBuilder {
@@ -26,6 +27,7 @@ impl VirtSerBuilder {
         Self {
             baud_rate: BaudRate::B115200,
             echo: false,
+            raw: true,
         }
     }
 
@@ -43,6 +45,13 @@ impl VirtSerBuilder {
         self
     }
 
+    /// If true, set raw mode on. If false, set raw mode off
+    #[must_use]
+    pub const fn set_raw(mut self, raw: bool) -> Self {
+        self.raw = raw;
+        self
+    }
+
     /// Build a new [VirtSer]
     pub fn build(self) -> Result<VirtSer> {
         let OpenptyResult { master, slave } = openpty(None, None)?;
@@ -53,7 +62,8 @@ impl VirtSerBuilder {
         let slave_path = ttyname(&slave)?;
         let slave_file = unsafe { File::from_raw_fd(slave.into_raw_fd()) };
 
-        set_flags(&slave_file)?;
+        set_raw(&master_file, self.raw)?;
+        set_raw(&slave_file, self.raw)?;
         set_echo(&slave_file, self.echo)?;
         set_baud_rate(&slave_file, self.baud_rate)?;
 
@@ -147,15 +157,12 @@ fn set_echo(file: &File, echo: bool) -> Result {
     Ok(())
 }
 
-fn set_flags(file: &File) -> Result {
+fn set_raw(file: &File, raw: bool) -> Result {
     let mut termios = termios::tcgetattr(file)?;
 
-    // Canonical mode is not suited to our purpose
-    // (line by line)
-    termios.local_flags.remove(LocalFlags::ICANON);
-
-    // Don't convert carriage to newline
-    termios.input_flags.remove(InputFlags::ICRNL);
+    if raw {
+        cfmakeraw(&mut termios);
+    }
 
     termios::tcsetattr(file, SetArg::TCSANOW, &termios)?;
     Ok(())
@@ -165,23 +172,46 @@ fn set_flags(file: &File) -> Result {
 mod tests {
     use super::*;
 
+    const TVS: &[&str] = &[
+        "Hello, world!",
+        "Howdy\ndo!\n",
+        "Wow\rza!\n",
+        "😀\r\r\x01\x02\x03\x04DAGÁN -",
+    ];
+
+    // Write to master, read from slave
     #[test]
     fn blocking_write() {
         let mut ser = VirtSerBuilder::new().build().unwrap();
-        let mut slave = File::open(ser.path()).unwrap();
 
-        let tvs = ["Hello, world!", "Howdy\ndo!\n", "Wow\rza!\n"];
-
-        for tv in tvs {
+        for tv in TVS {
             // Write to master
             ser.write_all(tv.as_bytes()).unwrap();
 
             // Read from slave
             let mut buf = vec![0; tv.len()];
-            slave.read_exact(&mut buf).unwrap();
+            ser._slave_file.read_exact(&mut buf).unwrap();
 
             println!("Testing: {tv}");
-            assert_eq!(buf, tv.as_bytes());
+            assert_eq!(tv.as_bytes(), buf);
+        }
+    }
+
+    // Write to slave, read from master
+    #[test]
+    fn blocking_read() {
+        let mut ser = VirtSerBuilder::new().build().unwrap();
+
+        for tv in TVS {
+            // Write to slave
+            ser._slave_file.write_all(tv.as_bytes()).unwrap();
+
+            // Read from master
+            let mut buf = vec![0; tv.len()];
+            ser.read_exact(&mut buf).unwrap();
+
+            println!("Testing: {tv}");
+            assert_eq!(tv.as_bytes(), buf);
         }
     }
 }
