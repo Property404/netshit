@@ -1,0 +1,15 @@
+[package]
+name = "stopgap"
+version = "0.0.0"
+description = "Send shit over TCP - used for NetShit in absense of a serial connection"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.97"
+clap = { version = "4.5.32", features = ["derive"] }
+nix = { version = "0.29.0", features = ["term"] }
+pty-process = { version = "0.5.1", features = ["async"] }
+tokio = { version = "1.44.1", features = ["full"] }
+utf8-parser = "0.1.1"
+virtser = { version = "0.0.0", path = "../virtser" }
+virtual-serialport = "0.1.3"
