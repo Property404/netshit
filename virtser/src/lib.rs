@@ -8,7 +8,6 @@ use std::{
     io::{Read, Write},
     os::fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd},
     path::{Path, PathBuf},
-    time::Duration,
 };
 mod error;
 pub use error::{Error, Result};
@@ -18,6 +17,7 @@ pub struct VirtSerBuilder {
     baud_rate: BaudRate,
     echo: bool,
     raw: bool,
+    nonblocking: bool,
 }
 
 impl VirtSerBuilder {
@@ -28,6 +28,7 @@ impl VirtSerBuilder {
             baud_rate: BaudRate::B115200,
             echo: false,
             raw: true,
+            nonblocking: true,
         }
     }
 
@@ -52,11 +53,20 @@ impl VirtSerBuilder {
         self
     }
 
+    /// If true, set nonblocking on. If false set nonblocking off
+    #[must_use]
+    pub const fn set_nonblocking(mut self, nonblocking: bool) -> Self {
+        self.nonblocking = nonblocking;
+        self
+    }
+
     /// Build a new [VirtSer]
     pub fn build(self) -> Result<VirtSer> {
         let OpenptyResult { master, slave } = openpty(None, None)?;
 
-        set_nonblocking(master.as_raw_fd())?;
+        if self.nonblocking {
+            set_nonblocking(master.as_raw_fd())?;
+        }
 
         let master_file = unsafe { File::from_raw_fd(master.into_raw_fd()) };
         let slave_path = ttyname(&slave)?;
@@ -98,32 +108,13 @@ impl VirtSer {
 
 impl Read for VirtSer {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        loop {
-            match self.master_file.read(buf) {
-                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                    continue;
-                }
-                other => {
-                    return other;
-                }
-            }
-        }
+        self.master_file.read(buf)
     }
 }
 
 impl Write for VirtSer {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        loop {
-            match self.master_file.write(buf) {
-                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(100));
-                    continue;
-                }
-                other => {
-                    return other;
-                }
-            }
-        }
+        self.master_file.write(buf)
     }
     fn flush(&mut self) -> std::io::Result<()> {
         self.master_file.flush()
@@ -182,7 +173,10 @@ mod tests {
     // Write to master, read from slave
     #[test]
     fn blocking_write() {
-        let mut ser = VirtSerBuilder::new().build().unwrap();
+        let mut ser = VirtSerBuilder::new()
+            .set_nonblocking(false)
+            .build()
+            .unwrap();
 
         for tv in TVS {
             // Write to master
@@ -200,7 +194,10 @@ mod tests {
     // Write to slave, read from master
     #[test]
     fn blocking_read() {
-        let mut ser = VirtSerBuilder::new().build().unwrap();
+        let mut ser = VirtSerBuilder::new()
+            .set_nonblocking(false)
+            .build()
+            .unwrap();
 
         for tv in TVS {
             // Write to slave
