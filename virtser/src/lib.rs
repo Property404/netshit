@@ -150,6 +150,10 @@ fn set_echo(file: &File, echo: bool) -> Result {
 fn set_flags(file: &File) -> Result {
     let mut termios = termios::tcgetattr(file)?;
 
+    // Canonical mode is not suited to our purpose
+    // (line by line)
+    termios.local_flags.remove(LocalFlags::ICANON);
+
     // Don't convert carriage to newline
     termios.input_flags.remove(InputFlags::ICRNL);
 
@@ -166,7 +170,7 @@ mod tests {
         let mut ser = VirtSerBuilder::new().build().unwrap();
         let mut slave = File::open(ser.path()).unwrap();
 
-        let tvs = ["Hello, world!\n", "Howdy\ndo!\n", "Wow\rza!\n"];
+        let tvs = ["Hello, world!", "Howdy\ndo!\n", "Wow\rza!\n"];
 
         for tv in tvs {
             // Write to master
